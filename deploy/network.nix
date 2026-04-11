@@ -37,13 +37,14 @@
       nixpkgs.hostPlatform = "x86_64-linux";
       system.stateVersion = "26.05";
 
-      # ---------------------------
       # Networking / Firewall
-      # ---------------------------
+      # For http  : [ 22 8000 ]
+      # For https : [22 80 443]
       networking.firewall.enable = true;
       networking.firewall.allowedTCPPorts = [
         22
-        8000
+        80
+        443
       ];
 
       environment.systemPackages = with pkgs; [
@@ -58,9 +59,6 @@
         "L /bin/bash - - - - /run/current-system/sw/bin/bash"
       ];
 
-      # ---------------------------
-      # JupyterHub
-      # ---------------------------
       services.jupyterhub = {
         enable = true;
 
@@ -85,9 +83,10 @@
           # explicitly define single-user command
           c.Spawner.cmd = ["${pyEnv}/bin/jupyter-labhub"]
 
-          # give it more time (important on first spawn)
-          c.Spawner.http_timeout = 120
-          c.Spawner.start_timeout = 120
+          # For reverse proxy when using https
+          # Comment out the next two lines if you just want to use http
+          c.JupyterHub.bind_url = "http://127.0.0.1:8000"
+          c.JupyterHub.trust_xheaders = True
 
           def ensure_user(spawner):
               import subprocess
@@ -139,9 +138,6 @@
         '';
       };
 
-      # ---------------------------
-      # Sudo for user creation
-      # ---------------------------
       security.sudo.extraRules = [
         {
           users = [ "jupyterhub" ];
@@ -157,5 +153,31 @@
           ];
         }
       ];
+
+      # The "services.nginx" and "security.acme" entries are only relevant for
+      # https. When you only need http, you can comment them out.
+      services.nginx = {
+        enable = true;
+
+        recommendedProxySettings = true;
+        recommendedTlsSettings = true;
+
+        # Insert your actual URL as a string, like "jupyterhub.root.cern", and
+        # don't forget to set the DNS record for that (sub)domain to point to
+        # the server IP.
+        virtualHosts."<sub.myurl.com>" = {
+          enableACME = true;
+          forceSSL = true;
+
+          locations."/" = {
+            proxyPass = "http://127.0.0.1:8000";
+            proxyWebsockets = true; # IMPORTANT for JupyterHub
+          };
+        };
+      };
+      security.acme = {
+        acceptTerms = true;
+        defaults.email = # "<myname@mymail.com>";
+      };
     };
 }
